@@ -81,7 +81,8 @@ jobs:
           export PREFIX="$(pwd)/../libevent-prefix"
           export CPPFLAGS="-I${PREFIX}/include"
           export LDFLAGS="$LDFLAGS_SYSROOT -L${PREFIX}/lib"
-          export LIBS="-levent -ldl -lm -lpthread"
+          # 移除-lpthread（Android中无需单独链接）
+          export LIBS="-levent -ldl -lm"
 
           chmod +x configure || true
           make clean || true
