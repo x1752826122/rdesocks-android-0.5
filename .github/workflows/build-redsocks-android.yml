@@ -10,8 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       API_LEVEL: 23
-      # 用 GitHub 环境自带的 NDK 版本（ubuntu-latest 预装了 NDK 25.2）
-      NDK_PATH: /usr/local/lib/android/sdk/ndk/25.2.9519653
 
     steps:
       - name: Checkout this repo
@@ -21,18 +19,30 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/darkk/redsocks.git
 
-      # 用官方 Java 环境+预装的 Android SDK/NDK
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Confirm pre-installed NDK
+      - name: 确认并获取预装的NDK路径
         run: |
-          # 验证 GitHub 环境自带的 NDK 是否存在
-          ls -la ${{ env.NDK_PATH }}
-          echo "NDK_PATH=${{ env.NDK_PATH }}" >> $GITHUB_ENV
+          # 列出环境中已安装的NDK版本
+          echo "当前环境已安装的NDK版本："
+          ls -la /usr/local/lib/android/sdk/ndk/
+          
+          # 自动选择第一个可用的NDK版本
+          export NDK_VERSION=$(ls /usr/local/lib/android/sdk/ndk/ | head -n 1)
+          export NDK_PATH="/usr/local/lib/android/sdk/ndk/$NDK_VERSION"
+          
+          # 验证路径存在
+          if [ ! -d "$NDK_PATH" ]; then
+            echo "错误：未找到NDK目录"
+            exit 1
+          fi
+          
+          echo "使用的NDK路径：$NDK_PATH"
+          echo "NDK_PATH=$NDK_PATH" >> $GITHUB_ENV
 
       - name: Prepare toolchain variables
         run: |
