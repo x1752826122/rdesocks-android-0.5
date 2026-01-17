@@ -6,8 +6,10 @@ on:
     branches: [ main ]
 
 jobs:
-  build:
+  build-arm64:
     runs-on: ubuntu-latest
+    env:
+      API_LEVEL: 21
 
     steps:
       - name: Checkout this repo
@@ -16,12 +18,11 @@ jobs:
       - name: Clone darkk/redsocks
         run: |
           git clone --depth=1 https://github.com/darkk/redsocks.git
-          ls -la redsocks
 
       - name: Setup Android NDK
         uses: android-actions/setup-android@v3
         with:
-          api-level: 21
+          api-level: ${{ env.API_LEVEL }}
           ndk: '25.2.9519653'
 
       - name: Show NDK info
@@ -30,25 +31,69 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
           ls -la "$ANDROID_NDK_HOME" || true
 
-      - name: Build aarch64 (arm64-v8a)
+      - name: Prepare toolchain variables
         run: |
-          set -eux
           export NDK="$ANDROID_NDK_HOME"
           TOOLCHAIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64"
-          export CC="$TOOLCHAIN/bin/aarch64-linux-android21-clang"
+          echo "TOOLCHAIN=$TOOLCHAIN"
+          echo "NDK=$NDK"
+        shell: bash
+
+      - name: Build libevent for aarch64
+        run: |
+          set -euo pipefail
+          export NDK="$ANDROID_NDK_HOME"
+          TOOLCHAIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64"
+          export CC="$TOOLCHAIN/bin/aarch64-linux-android${API_LEVEL}-clang"
+          export AR="$TOOLCHAIN/bin/aarch64-linux-android-ar"
+          export RANLIB="$TOOLCHAIN/bin/aarch64-linux-android-ranlib"
+          export STRIP="$TOOLCHAIN/bin/aarch64-linux-android-strip"
+
+          # Clone libevent and build static library into a local prefix
+          git clone --depth=1 https://github.com/libevent/libevent.git
+          cd libevent
+          ./autogen.sh || true
+          ./configure --host=aarch64-linux-android --enable-shared=no --enable-static=yes --prefix=$(pwd)/../libevent-prefix CC="$CC" CFLAGS="--sysroot=$TOOLCHAIN/sysroot -fPIC" AR="$AR" RANLIB="$RANLIB"
+          make -j$(nproc)
+          make install
+          cd ..
+
+          ls -la libevent-prefix
+          echo "libevent built into libevent-prefix"
+
+      - name: Build redsocks (aarch64) linking libevent
+        run: |
+          set -euo pipefail
+          export NDK="$ANDROID_NDK_HOME"
+          TOOLCHAIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64"
+          export CC="$TOOLCHAIN/bin/aarch64-linux-android${API_LEVEL}-clang"
+          export AR="$TOOLCHAIN/bin/aarch64-linux-android-ar"
+          export RANLIB="$TOOLCHAIN/bin/aarch64-linux-android-ranlib"
+          export SYSROOT="$TOOLCHAIN/sysroot"
+
           cd redsocks
+
+          # Ensure version gen step won't fail hard if git describe returns nothing
+          export GIT_DIR=$(pwd)/.git
+          # Set include and lib paths from the libevent prefix
+          export PREFIX="$(pwd)/../libevent-prefix"
+          export CPPFLAGS="-I${PREFIX}/include"
+          export LDFLAGS="-L${PREFIX}/lib"
+          export LIBS="-levent"
+
+          # Clean and build using the cross compiler
           chmod +x configure || true
           make clean || true
-          # Try building with the NDK clang
-          make CC="$CC" -j$(nproc) || {
-            echo "Build failed - dumping config and attempting fallback"
-            make V=1 CC="$CC" || exit 1
-          }
+          make CC="$CC" CPPFLAGS="$CPPFLAGS" LDFLAGS="$LDFLAGS" LIBS="$LIBS" -j$(nproc)
+
+          # If built, copy binary to out
           mkdir -p ../out/arm64-v8a
           if [ -f redsocks ]; then
             cp redsocks ../out/arm64-v8a/redsocks
+            file ../out/arm64-v8a/redsocks || true
+            ls -la ../out/arm64-v8a
           else
-            echo "Warning: redsocks binary not found"
+            echo "Warning: redsocks binary not found after build"
             ls -la
             exit 1
           fi
