@@ -45,15 +45,18 @@ jobs:
           export NDK="$ANDROID_NDK_HOME"
           TOOLCHAIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64"
           export CC="$TOOLCHAIN/bin/aarch64-linux-android${API_LEVEL}-clang"
-          export AR="$TOOLCHAIN/bin/aarch64-linux-android-ar"
-          export RANLIB="$TOOLCHAIN/bin/aarch64-linux-android-ranlib"
-          export STRIP="$TOOLCHAIN/bin/aarch64-linux-android-strip"
+          # Use llvm-ar/llvm-ranlib provided by the NDK toolchain
+          export AR="$TOOLCHAIN/bin/llvm-ar"
+          export RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
+          export STRIP="$TOOLCHAIN/bin/llvm-strip"
+          export PATH="$TOOLCHAIN/bin:$PATH"
 
           # Clone libevent and build static library into a local prefix
           git clone --depth=1 https://github.com/libevent/libevent.git
           cd libevent
           ./autogen.sh || true
-          ./configure --host=aarch64-linux-android --enable-shared=no --enable-static=yes --prefix=$(pwd)/../libevent-prefix CC="$CC" CFLAGS="--sysroot=$TOOLCHAIN/sysroot -fPIC" AR="$AR" RANLIB="$RANLIB"
+          # Provide sysroot and cross flags; build static only
+          ./configure --host=aarch64-linux-android --enable-shared=no --enable-static=yes --prefix=$(pwd)/../libevent-prefix CC="$CC" CFLAGS="--sysroot=$TOOLCHAIN/sysroot -fPIC" AR="$AR" RANLIB="$RANLIB" STRIP="$STRIP"
           make -j$(nproc)
           make install
           cd ..
@@ -67,19 +70,21 @@ jobs:
           export NDK="$ANDROID_NDK_HOME"
           TOOLCHAIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64"
           export CC="$TOOLCHAIN/bin/aarch64-linux-android${API_LEVEL}-clang"
-          export AR="$TOOLCHAIN/bin/aarch64-linux-android-ar"
-          export RANLIB="$TOOLCHAIN/bin/aarch64-linux-android-ranlib"
+          export AR="$TOOLCHAIN/bin/llvm-ar"
+          export RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
           export SYSROOT="$TOOLCHAIN/sysroot"
+          export PATH="$TOOLCHAIN/bin:$PATH"
 
           cd redsocks
 
           # Ensure version gen step won't fail hard if git describe returns nothing
-          export GIT_DIR=$(pwd)/.git
+          export GIT_DIR=$(pwd)/.git || true
+
           # Set include and lib paths from the libevent prefix
           export PREFIX="$(pwd)/../libevent-prefix"
           export CPPFLAGS="-I${PREFIX}/include"
           export LDFLAGS="-L${PREFIX}/lib"
-          export LIBS="-levent"
+          export LIBS="-levent -ldl -lm -lpthread"
 
           # Clean and build using the cross compiler
           chmod +x configure || true
