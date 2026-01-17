@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       API_LEVEL: 21
+      NDK_VERSION: '25.2.9519653'
 
     steps:
       - name: Checkout this repo
@@ -22,40 +23,42 @@ jobs:
       - name: Setup Android NDK
         uses: android-actions/setup-android@v3
         with:
-          api-level: ${{ env.API_LEVEL }}
-          ndk: '25.2.9519653'
+          # 修复：用 packages 指定 API 和 NDK（原参数不支持）
+          cmdline-tools-version: latest
+          accept-android-sdk-licenses: true
+          packages: |
+            platforms;android-${{ env.API_LEVEL }}
+            ndk;${{ env.NDK_VERSION }}
 
       - name: Show NDK info
         run: |
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          # 修复：NDK 路径变量是 ANDROID_NDK_ROOT（不是 ANDROID_NDK_HOME）
+          export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}"
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
           ls -la "$ANDROID_NDK_HOME" || true
 
       - name: Prepare toolchain variables
         run: |
-          export NDK="$ANDROID_NDK_HOME"
-          TOOLCHAIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64"
-          echo "TOOLCHAIN=$TOOLCHAIN"
-          echo "NDK=$NDK"
+          export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}"
+          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+          echo "TOOLCHAIN=$TOOLCHAIN" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME" >> $GITHUB_ENV
         shell: bash
 
       - name: Build libevent for aarch64
         run: |
           set -euo pipefail
-          export NDK="$ANDROID_NDK_HOME"
-          TOOLCHAIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64"
-          export CC="$TOOLCHAIN/bin/aarch64-linux-android${API_LEVEL}-clang"
-          # Use llvm-ar/llvm-ranlib provided by the NDK toolchain
+          TOOLCHAIN="${{ env.TOOLCHAIN }}"
+          export CC="$TOOLCHAIN/bin/aarch64-linux-android${{ env.API_LEVEL }}-clang"
           export AR="$TOOLCHAIN/bin/llvm-ar"
           export RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
           export STRIP="$TOOLCHAIN/bin/llvm-strip"
           export PATH="$TOOLCHAIN/bin:$PATH"
 
-          # Clone libevent and build static library into a local prefix
           git clone --depth=1 https://github.com/libevent/libevent.git
           cd libevent
           ./autogen.sh || true
-          # Provide sysroot and cross flags; build static only
           ./configure --host=aarch64-linux-android --enable-shared=no --enable-static=yes --prefix=$(pwd)/../libevent-prefix CC="$CC" CFLAGS="--sysroot=$TOOLCHAIN/sysroot -fPIC" AR="$AR" RANLIB="$RANLIB" STRIP="$STRIP"
           make -j$(nproc)
           make install
@@ -67,38 +70,31 @@ jobs:
       - name: Build redsocks (aarch64) linking libevent
         run: |
           set -euo pipefail
-          export NDK="$ANDROID_NDK_HOME"
-          TOOLCHAIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64"
-          export CC="$TOOLCHAIN/bin/aarch64-linux-android${API_LEVEL}-clang"
+          TOOLCHAIN="${{ env.TOOLCHAIN }}"
+          export CC="$TOOLCHAIN/bin/aarch64-linux-android${{ env.API_LEVEL }}-clang"
           export AR="$TOOLCHAIN/bin/llvm-ar"
           export RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
           export SYSROOT="$TOOLCHAIN/sysroot"
           export PATH="$TOOLCHAIN/bin:$PATH"
 
           cd redsocks
-
-          # Ensure version gen step won't fail hard if git describe returns nothing
           export GIT_DIR=$(pwd)/.git || true
-
-          # Set include and lib paths from the libevent prefix
           export PREFIX="$(pwd)/../libevent-prefix"
           export CPPFLAGS="-I${PREFIX}/include"
           export LDFLAGS="-L${PREFIX}/lib"
           export LIBS="-levent -ldl -lm -lpthread"
 
-          # Clean and build using the cross compiler
           chmod +x configure || true
           make clean || true
           make CC="$CC" CPPFLAGS="$CPPFLAGS" LDFLAGS="$LDFLAGS" LIBS="$LIBS" -j$(nproc)
 
-          # If built, copy binary to out
           mkdir -p ../out/arm64-v8a
           if [ -f redsocks ]; then
             cp redsocks ../out/arm64-v8a/redsocks
             file ../out/arm64-v8a/redsocks || true
             ls -la ../out/arm64-v8a
           else
-            echo "Warning: redsocks binary not found after build"
+            echo "Error: redsocks binary not found"
             ls -la
             exit 1
           fi
