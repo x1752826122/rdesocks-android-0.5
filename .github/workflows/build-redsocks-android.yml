@@ -27,15 +27,12 @@ jobs:
 
       - name: 确认并获取预装的NDK路径
         run: |
-          # 列出环境中已安装的NDK版本
           echo "当前环境已安装的NDK版本："
           ls -la /usr/local/lib/android/sdk/ndk/
           
-          # 自动选择第一个可用的NDK版本
           export NDK_VERSION=$(ls /usr/local/lib/android/sdk/ndk/ | head -n 1)
           export NDK_PATH="/usr/local/lib/android/sdk/ndk/$NDK_VERSION"
           
-          # 验证路径存在
           if [ ! -d "$NDK_PATH" ]; then
             echo "错误：未找到NDK目录"
             exit 1
@@ -76,18 +73,19 @@ jobs:
           export AR="$TOOLCHAIN/bin/llvm-ar"
           export RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
           export SYSROOT="$TOOLCHAIN/sysroot"
+          export LDFLAGS_SYSROOT="-L$SYSROOT/usr/lib/aarch64-linux-android/${{ env.API_LEVEL }}"
           export PATH="$TOOLCHAIN/bin:$PATH"
 
           cd redsocks
           export GIT_DIR=$(pwd)/.git || true
           export PREFIX="$(pwd)/../libevent-prefix"
           export CPPFLAGS="-I${PREFIX}/include"
-          export LDFLAGS="-L${PREFIX}/lib"
+          export LDFLAGS="$LDFLAGS_SYSROOT -L${PREFIX}/lib"
           export LIBS="-levent -ldl -lm -lpthread"
 
           chmod +x configure || true
           make clean || true
-          make CC="$CC" CPPFLAGS="$CPPFLAGS" LDFLAGS="$LDFLAGS" LIBS="$LIBS" -j$(nproc)
+          make CC="$CC" CPPFLAGS="$CPPFLAGS" LDFLAGS="$LDFLAGS" LIBS="$LIBS" LD="$CC" CFLAGS="-Wno-error" -j$(nproc)
 
           mkdir -p ../out/arm64-v8a
           if [ -f redsocks ]; then
