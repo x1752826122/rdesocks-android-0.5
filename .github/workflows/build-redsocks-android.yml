@@ -9,8 +9,9 @@ jobs:
   build-arm64:
     runs-on: ubuntu-latest
     env:
-      API_LEVEL: 21
-      NDK_VERSION: '25.2.9519653'
+      API_LEVEL: 23
+      # 用 GitHub 环境自带的 NDK 版本（ubuntu-latest 预装了 NDK 25.2）
+      NDK_PATH: /usr/local/lib/android/sdk/ndk/25.2.9519653
 
     steps:
       - name: Checkout this repo
@@ -20,30 +21,23 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/darkk/redsocks.git
 
-      - name: Setup Android NDK
-        uses: android-actions/setup-android@v3
+      # 用官方 Java 环境+预装的 Android SDK/NDK
+      - name: Setup Java
+        uses: actions/setup-java@v4
         with:
-          # 修复：用 packages 指定 API 和 NDK（原参数不支持）
-          cmdline-tools-version: latest
-          accept-android-sdk-licenses: true
-          packages: |
-            platforms;android-${{ env.API_LEVEL }}
-            ndk;${{ env.NDK_VERSION }}
+          java-version: '17'
+          distribution: 'temurin'
 
-      - name: Show NDK info
+      - name: Confirm pre-installed NDK
         run: |
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-          # 修复：NDK 路径变量是 ANDROID_NDK_ROOT（不是 ANDROID_NDK_HOME）
-          export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}"
-          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
-          ls -la "$ANDROID_NDK_HOME" || true
+          # 验证 GitHub 环境自带的 NDK 是否存在
+          ls -la ${{ env.NDK_PATH }}
+          echo "NDK_PATH=${{ env.NDK_PATH }}" >> $GITHUB_ENV
 
       - name: Prepare toolchain variables
         run: |
-          export ANDROID_NDK_HOME="$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}"
-          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
+          TOOLCHAIN="${{ env.NDK_PATH }}/toolchains/llvm/prebuilt/linux-x86_64"
           echo "TOOLCHAIN=$TOOLCHAIN" >> $GITHUB_ENV
-          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME" >> $GITHUB_ENV
         shell: bash
 
       - name: Build libevent for aarch64
@@ -63,9 +57,6 @@ jobs:
           make -j$(nproc)
           make install
           cd ..
-
-          ls -la libevent-prefix
-          echo "libevent built into libevent-prefix"
 
       - name: Build redsocks (aarch64) linking libevent
         run: |
@@ -91,11 +82,9 @@ jobs:
           mkdir -p ../out/arm64-v8a
           if [ -f redsocks ]; then
             cp redsocks ../out/arm64-v8a/redsocks
-            file ../out/arm64-v8a/redsocks || true
-            ls -la ../out/arm64-v8a
+            file ../out/arm64-v8a/redsocks
           else
             echo "Error: redsocks binary not found"
-            ls -la
             exit 1
           fi
 
