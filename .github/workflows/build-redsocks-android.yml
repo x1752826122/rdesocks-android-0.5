@@ -1,0 +1,60 @@
+name: Build darkk/redsocks for Android (arm64)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Clone darkk/redsocks
+        run: |
+          git clone --depth=1 https://github.com/darkk/redsocks.git
+          ls -la redsocks
+
+      - name: Setup Android NDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: 21
+          ndk: '25.2.9519653'
+
+      - name: Show NDK info
+        run: |
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
+          ls -la "$ANDROID_NDK_HOME" || true
+
+      - name: Build aarch64 (arm64-v8a)
+        run: |
+          set -eux
+          export NDK="$ANDROID_NDK_HOME"
+          TOOLCHAIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64"
+          export CC="$TOOLCHAIN/bin/aarch64-linux-android21-clang"
+          cd redsocks
+          chmod +x configure || true
+          make clean || true
+          # Try building with the NDK clang
+          make CC="$CC" -j$(nproc) || {
+            echo "Build failed - dumping config and attempting fallback"
+            make V=1 CC="$CC" || exit 1
+          }
+          mkdir -p ../out/arm64-v8a
+          if [ -f redsocks ]; then
+            cp redsocks ../out/arm64-v8a/redsocks
+          else
+            echo "Warning: redsocks binary not found"
+            ls -la
+            exit 1
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: redsocks-android-arm64
+          path: out/**
